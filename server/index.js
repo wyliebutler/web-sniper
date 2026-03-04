@@ -294,6 +294,8 @@ io.on('connection', (socket) => {
         name: "Guest",
         x: px + 0.5,
         y: py + 0.5,
+        dx: 0,
+        dy: 0,
         score: 0,
         health: 100,
         lives: 3,
@@ -308,6 +310,8 @@ io.on('connection', (socket) => {
             player.isAlive = true;
             player.health = 100;
             player.lives = 3;
+            player.dx = 0;
+            player.dy = 0;
         }
     });
 
@@ -354,63 +358,11 @@ io.on('connection', (socket) => {
         id: socket.id
     });
 
-    socket.on('move', (data) => {
+    socket.on('input_change', (data) => {
         const player = gameState.players[socket.id];
         if (player && player.isAlive && gameState.matchState === 'RUNNING') {
-            const speed = 0.2; // Increase speed slightly to compensate for bigger grid
-            let dx = (data.dx || 0) * speed;
-            let dy = (data.dy || 0) * speed;
-
-            const playerSize = 0.35; // A radius, making the player 0.7x0.7 cells large
-            let nextX = player.x + dx;
-            let nextY = player.y + dy;
-
-            // Fluid grid movement: check center-based target cell
-            if (dx !== 0) {
-                const targetX = player.x + Math.sign(dx) * playerSize + dx;
-                const gx = Math.floor(targetX);
-                const gy = Math.floor(player.y);
-
-                if (gameState.maze[gy] && gameState.maze[gy][gx] === 0) {
-                    player.x += dx;
-                } else if (dx > 0) {
-                    player.x = Math.floor(player.x) + 1 - playerSize;
-                } else if (dx < 0) {
-                    player.x = Math.ceil(player.x - 0.5) + playerSize;
-                }
-
-                // Auto-align Y if not actively moving vertically
-                if (dy === 0) {
-                    const centerY = gy + 0.5;
-                    const diffY = centerY - player.y;
-                    if (Math.abs(diffY) > 0.001) {
-                        player.y += Math.sign(diffY) * Math.min(Math.abs(diffY), speed * 0.75);
-                    }
-                }
-            }
-
-            if (dy !== 0) {
-                const targetY = player.y + Math.sign(dy) * playerSize + dy;
-                const gy = Math.floor(targetY);
-                const gx = Math.floor(player.x);
-
-                if (gameState.maze[gy] && gameState.maze[gy][gx] === 0) {
-                    player.y += dy;
-                } else if (dy > 0) {
-                    player.y = Math.floor(player.y) + 1 - playerSize;
-                } else if (dy < 0) {
-                    player.y = Math.ceil(player.y - 0.5) + playerSize;
-                }
-
-                // Auto-align X if not actively moving horizontally
-                if (dx === 0) {
-                    const centerX = gx + 0.5;
-                    const diffX = centerX - player.x;
-                    if (Math.abs(diffX) > 0.001) {
-                        player.x += Math.sign(diffX) * Math.min(Math.abs(diffX), speed * 0.75);
-                    }
-                }
-            }
+            player.dx = data.dx || 0;
+            player.dy = data.dy || 0;
         }
     });
 
@@ -465,6 +417,8 @@ function checkPlayerDeath(player, killerId = null) {
                 } while (gameState.maze[ry][rx] === 1);
                 player.x = rx + 0.5;
                 player.y = ry + 0.5;
+                player.dx = 0;
+                player.dy = 0;
                 player.health = 100;
                 player.isAlive = true;
             }, 3000);
@@ -514,6 +468,62 @@ function updatePlayers() {
     if (gameState.matchState !== 'RUNNING') return;
     Object.values(gameState.players).forEach(player => {
         if (!player.isAlive) return;
+
+        // --- Continuous Velocity Physics ---
+        const speed = 0.2; // Increase speed slightly to compensate for bigger grid
+        let dx = (player.dx || 0) * speed;
+        let dy = (player.dy || 0) * speed;
+
+        const playerSize = 0.35; // A radius, making the player 0.7x0.7 cells large
+
+        // Fluid grid movement: check center-based target cell
+        if (dx !== 0) {
+            const targetX = player.x + Math.sign(dx) * playerSize + dx;
+            const gx = Math.floor(targetX);
+            const gy = Math.floor(player.y);
+
+            if (gameState.maze[gy] && gameState.maze[gy][gx] === 0) {
+                player.x += dx;
+            } else if (dx > 0) {
+                player.x = Math.floor(player.x) + 1 - playerSize;
+            } else if (dx < 0) {
+                player.x = Math.ceil(player.x - 0.5) + playerSize;
+            }
+
+            // Auto-align Y if not actively moving vertically
+            if (dy === 0) {
+                const centerY = gy + 0.5;
+                const diffY = centerY - player.y;
+                if (Math.abs(diffY) > 0.001) {
+                    player.y += Math.sign(diffY) * Math.min(Math.abs(diffY), speed * 0.75);
+                }
+            }
+        }
+
+        if (dy !== 0) {
+            const targetY = player.y + Math.sign(dy) * playerSize + dy;
+            const gy = Math.floor(targetY);
+            const gx = Math.floor(player.x);
+
+            if (gameState.maze[gy] && gameState.maze[gy][gx] === 0) {
+                player.y += dy;
+            } else if (dy > 0) {
+                player.y = Math.floor(player.y) + 1 - playerSize;
+            } else if (dy < 0) {
+                player.y = Math.ceil(player.y - 0.5) + playerSize;
+            }
+
+            // Auto-align X if not actively moving horizontally
+            if (dx === 0) {
+                const centerX = gx + 0.5;
+                const diffX = centerX - player.x;
+                if (Math.abs(diffX) > 0.001) {
+                    player.x += Math.sign(diffX) * Math.min(Math.abs(diffX), speed * 0.75);
+                }
+            }
+        }
+        // --- /Continuous Velocity Physics ---
+
         gameState.snipes.forEach(snipe => {
             const dist = Math.sqrt((player.x - snipe.x) ** 2 + (player.y - snipe.y) ** 2);
             if (dist < 0.7) {

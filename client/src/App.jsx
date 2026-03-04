@@ -25,8 +25,12 @@ function App() {
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
   const [gameState, setGameState] = useState(null);
+  const gameStateRef = useRef(null);
   const [myId, setMyId] = useState(null);
   const keysRef = useRef({});
+  const lastInputRef = useRef({ dx: 0, dy: 0 });
+  const lastShootTimeRef = useRef(0);
+  const flashTimeRef = useRef(0);
   const [name, setName] = useState('');
   const [view, setView] = useState('lobby'); // lobby, game
   const [flash, setFlash] = useState(false);
@@ -49,6 +53,7 @@ function App() {
     socket.on('init', (data) => {
       console.log('INIT received:', data);
       setGameState(data);
+      gameStateRef.current = data;
       setMyId(data.id);
       if (data.gameMode) setGameMode(data.gameMode);
       if (data.matchState) setMatchState(data.matchState);
@@ -65,12 +70,15 @@ function App() {
         if (prev && prev.players[myId] && state.players[myId]) {
           if (state.players[myId].health < prev.players[myId].health) {
             setFlash(true);
+            flashTimeRef.current = Date.now();
             playSound(150, 'sawtooth', 0.2, 0.2);
             setTimeout(() => setFlash(false), 100);
           }
         }
         // If maze is provided in stateUpdate (on match start), update it
-        return { ...prev, ...state };
+        const nextState = { ...prev, ...state };
+        gameStateRef.current = nextState;
+        return nextState;
       });
     });
 
@@ -160,15 +168,19 @@ function App() {
   useEffect(() => {
     if (!socketRef.current || view !== 'game' || !gameState || gameState.matchState !== 'RUNNING') return;
 
-    const interval = setInterval(() => {
+    let animFrame;
+    const checkInputs = () => {
       const keys = keysRef.current;
       let dx = 0, dy = 0;
       if (keys['ArrowUp']) dy -= 1;
       if (keys['ArrowDown']) dy += 1;
       if (keys['ArrowLeft']) dx -= 1;
       if (keys['ArrowRight']) dx += 1;
-      if (dx !== 0 || dy !== 0) {
-        socketRef.current.emit('move', { dx, dy });
+
+      const lastInput = lastInputRef.current;
+      if (dx !== lastInput.dx || dy !== lastInput.dy) {
+        socketRef.current.emit('input_change', { dx, dy });
+        lastInputRef.current = { dx, dy };
       }
 
       let vx = 0, vy = 0;
@@ -176,162 +188,178 @@ function App() {
       if (keys['KeyS']) vy += 1;
       if (keys['KeyA']) vx -= 1;
       if (keys['KeyD']) vx += 1;
-      if (vx !== 0 || vy !== 0) {
+
+      const now = Date.now();
+      if ((vx !== 0 || vy !== 0) && now - lastShootTimeRef.current > 200) {
         socketRef.current.emit('shoot', { vx, vy });
         playSound(600, 'square', 0.05, 0.1);
+        lastShootTimeRef.current = now;
       }
-    }, 50);
-    return () => clearInterval(interval);
+
+      animFrame = requestAnimationFrame(checkInputs);
+    };
+    animFrame = requestAnimationFrame(checkInputs);
+    return () => cancelAnimationFrame(animFrame);
   }, [view, gameState?.matchState]);
 
-  // Render Loop
+  // High-Speed Render Loop
   useEffect(() => {
-    if (!gameState || !gameState.maze || !canvasRef.current || view !== 'game') return;
+    if (view !== 'game' || !canvasRef.current) return;
 
-    const ctx = canvasRef.current.getContext('2d');
-    const { players, snipes } = gameState; // Destructure snipes from gameState
-    const currentMaze = maze || gameState.maze; // Use local maze state if available, otherwise from gameState
-    const currentHives = hives.length > 0 ? hives : gameState.hives; // Use local hives state if available, otherwise from gameState
-    const currentBullets = bullets.length > 0 ? bullets : gameState.bullets; // Use local bullets state if available, otherwise from gameState
+    let animFrame;
+    const render = () => {
+      animFrame = requestAnimationFrame(render);
+      const currentState = gameStateRef.current;
+      if (!currentState || !currentState.maze) return;
 
-    if (!currentMaze || !players || !currentHives) return;
+      const ctx = canvasRef.current.getContext('2d');
+      const { players, snipes, matchState, countdown } = currentState;
+      const currentMaze = maze || currentState.maze;
+      const currentHives = hives.length > 0 ? hives : currentState.hives;
+      const currentBullets = bullets.length > 0 ? bullets : currentState.bullets;
 
-    // Set canvas dimensions
-    const MAZE_WIDTH = currentMaze[0].length;
-    const MAZE_HEIGHT = currentMaze.length;
-    canvasRef.current.width = MAZE_WIDTH * CELL_SIZE;
-    canvasRef.current.height = MAZE_HEIGHT * CELL_SIZE;
+      if (!currentMaze || !players || !currentHives) return;
 
-    ctx.fillStyle = flash ? '#300' : '#000';
-    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      // Set canvas dimensions
+      const MAZE_WIDTH = currentMaze[0].length;
+      const MAZE_HEIGHT = currentMaze.length;
+      canvasRef.current.width = MAZE_WIDTH * CELL_SIZE;
+      canvasRef.current.height = MAZE_HEIGHT * CELL_SIZE;
 
-    ctx.font = FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+      const isFlashing = Date.now() - flashTimeRef.current < 100;
+      ctx.fillStyle = isFlashing ? '#300' : '#000';
+      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-    // Draw Maze
-    try {
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      for (let y = 0; y < currentMaze.length; y++) {
-        for (let x = 0; x < currentMaze[y].length; x++) {
-          if (currentMaze[y][x] === 1) {
-            const top = y > 0 && currentMaze[y - 1][x] === 1;
-            const bottom = y < MAZE_HEIGHT - 1 && currentMaze[y + 1][x] === 1;
-            const left = x > 0 && currentMaze[y][x - 1] === 1;
-            const right = x < MAZE_WIDTH - 1 && currentMaze[y][x + 1] === 1;
-            ctx.beginPath();
-            if (top) {
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+      ctx.font = FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Draw Maze
+      try {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        for (let y = 0; y < currentMaze.length; y++) {
+          for (let x = 0; x < currentMaze[y].length; x++) {
+            if (currentMaze[y][x] === 1) {
+              const top = y > 0 && currentMaze[y - 1][x] === 1;
+              const bottom = y < MAZE_HEIGHT - 1 && currentMaze[y + 1][x] === 1;
+              const left = x > 0 && currentMaze[y][x - 1] === 1;
+              const right = x < MAZE_WIDTH - 1 && currentMaze[y][x + 1] === 1;
+              ctx.beginPath();
+              if (top) {
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+              }
+              if (bottom) {
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE);
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE);
+              }
+              if (left) {
+                ctx.moveTo(x * CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+                ctx.moveTo(x * CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+              }
+              if (right) {
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 - 2);
+                ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+                ctx.lineTo(x * CELL_SIZE + CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 + 2);
+              }
+
+              // Draw intersection block in the middle
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.strokeRect(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2, 4, 4);
             }
-            if (bottom) {
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE);
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE);
-            }
-            if (left) {
-              ctx.moveTo(x * CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 - 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
-              ctx.moveTo(x * CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-            }
-            if (right) {
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 - 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 - 2);
-              ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 + 2, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-              ctx.lineTo(x * CELL_SIZE + CELL_SIZE, y * CELL_SIZE + CELL_SIZE / 2 + 2);
-            }
-
-            // Draw intersection block in the middle
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.strokeRect(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE + CELL_SIZE / 2 - 2, 4, 4);
           }
         }
-      }
-    } catch (e) {
-      console.error('Render error in maze:', e);
-    }
-
-    if (matchState === 'RUNNING' || matchState === 'GAME_OVER') {
-      // Draw Hives
-      ctx.fillStyle = '#0ff';
-      if (currentHives) {
-        currentHives.forEach(h => ctx.fillText('⌂', h.x * CELL_SIZE, h.y * CELL_SIZE));
+      } catch (e) {
+        console.error('Render error in maze:', e);
       }
 
-      // Draw Snipes
-      if (snipes) {
-        snipes.forEach(s => {
-          if (s.type === 'fast') ctx.fillStyle = '#0ff'; // Cyan
-          else if (s.type === 'shooter') ctx.fillStyle = '#f00'; // Red
-          else ctx.fillStyle = '#f0f'; // Pink
-          ctx.fillText('∩', s.x * CELL_SIZE, s.y * CELL_SIZE);
-        });
+      if (matchState === 'RUNNING' || matchState === 'GAME_OVER') {
+        // Draw Hives
+        ctx.fillStyle = '#0ff';
+        if (currentHives) {
+          currentHives.forEach(h => ctx.fillText('⌂', h.x * CELL_SIZE, h.y * CELL_SIZE));
+        }
+
+        // Draw Snipes
+        if (snipes) {
+          snipes.forEach(s => {
+            if (s.type === 'fast') ctx.fillStyle = '#0ff'; // Cyan
+            else if (s.type === 'shooter') ctx.fillStyle = '#f00'; // Red
+            else ctx.fillStyle = '#f0f'; // Pink
+            ctx.fillText('∩', s.x * CELL_SIZE, s.y * CELL_SIZE);
+          });
+        }
+
+        // Draw Bullets
+        ctx.fillStyle = '#fff';
+        if (currentBullets) {
+          currentBullets.forEach(b => ctx.fillText('·', b.x * CELL_SIZE, b.y * CELL_SIZE));
+        }
       }
 
-      // Draw Bullets
-      ctx.fillStyle = '#fff';
-      if (currentBullets) {
-        currentBullets.forEach(b => ctx.fillText('·', b.x * CELL_SIZE, b.y * CELL_SIZE));
-      }
-    }
+      // Draw Players
+      Object.values(players).forEach(p => {
+        ctx.fillStyle = p.id === myId ? '#0f0' : p.color;
+        ctx.fillText('☻', p.x * CELL_SIZE, p.y * CELL_SIZE);
+        ctx.font = '8px monospace';
+        ctx.fillText(p.name, p.x * CELL_SIZE, p.y * CELL_SIZE - CELL_SIZE * 0.75);
+        ctx.font = '10px monospace';
+        if (p.health > 0) {
+          ctx.fillStyle = '#0f0';
+          ctx.fillText(`♥ ${p.health} | x${p.lives}`, p.x * CELL_SIZE, p.y * CELL_SIZE + 20);
+        } else if (p.lives <= 0) {
+          ctx.fillStyle = '#f00';
+          ctx.fillText('ELIMINATED', p.x * CELL_SIZE, p.y * CELL_SIZE);
+        } else {
+          ctx.fillStyle = '#f00';
+          ctx.fillText('DEAD', p.x * CELL_SIZE, p.y * CELL_SIZE);
+        }
+        ctx.font = FONT;
+      });
 
-    // Draw Players
-    Object.values(players).forEach(p => {
-      ctx.fillStyle = p.id === myId ? '#0f0' : p.color;
-      ctx.fillText('☻', p.x * CELL_SIZE, p.y * CELL_SIZE);
-      ctx.font = '8px monospace';
-      ctx.fillText(p.name, p.x * CELL_SIZE, p.y * CELL_SIZE - CELL_SIZE * 0.75);
-      ctx.font = '10px monospace';
-      if (p.health > 0) {
+      // Overlays
+      if (matchState === 'STARTING') {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         ctx.fillStyle = '#0f0';
-        ctx.fillText(`♥ ${p.health} | x${p.lives}`, p.x * CELL_SIZE, p.y * CELL_SIZE + 20);
-      } else if (p.lives <= 0) {
-        ctx.fillStyle = '#f00';
-        ctx.fillText('ELIMINATED', p.x * CELL_SIZE, p.y * CELL_SIZE);
-      } else {
-        ctx.fillStyle = '#f00';
-        ctx.fillText('DEAD', p.x * CELL_SIZE, p.y * CELL_SIZE);
+        ctx.font = '48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`STARTING IN ${countdown}`, canvasRef.current.width / 2, canvasRef.current.height / 2);
       }
-      ctx.font = FONT;
-    });
 
-    // Overlays
-    if (matchState === 'STARTING') {
-      ctx.fillStyle = 'rgba(0,0,0,0.8)';
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      ctx.fillStyle = '#0f0';
-      ctx.font = '48px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`STARTING IN ${countdown}`, canvasRef.current.width / 2, canvasRef.current.height / 2);
-    }
+      if (matchState === 'GAME_OVER') {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        ctx.fillStyle = '#0f0';
+        ctx.font = '48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('MISSION COMPLETE', canvasRef.current.width / 2, canvasRef.current.height / 2 - 20);
+        ctx.font = '24px monospace';
+        ctx.fillText('ALL HIVES DESTROYED', canvasRef.current.width / 2, canvasRef.current.height / 2 + 40);
+      }
 
-    if (matchState === 'GAME_OVER') {
-      ctx.fillStyle = 'rgba(0,0,0,0.8)';
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      ctx.fillStyle = '#0f0';
-      ctx.font = '48px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('MISSION COMPLETE', canvasRef.current.width / 2, canvasRef.current.height / 2 - 20);
-      ctx.font = '24px monospace';
-      ctx.fillText('ALL HIVES DESTROYED', canvasRef.current.width / 2, canvasRef.current.height / 2 + 40);
-    }
+      if (players[myId] && !players[myId].isAlive && matchState === 'RUNNING') {
+        ctx.fillStyle = 'rgba(255,0,0,0.3)';
+        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = '32px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('RESPAWNING...', canvasRef.current.width / 2, canvasRef.current.height / 2);
+      }
 
-    if (players[myId] && !players[myId].isAlive && matchState === 'RUNNING') {
-      ctx.fillStyle = 'rgba(255,0,0,0.3)';
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      ctx.fillStyle = '#fff';
-      ctx.font = '32px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('RESPAWNING...', canvasRef.current.width / 2, canvasRef.current.height / 2);
-    }
-
-  }, [gameState, myId, view, flash, maze, hives, bullets, matchState, countdown]);
+    }; // end render
+    animFrame = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animFrame);
+  }, [view, myId, maze, hives, bullets]);
 
   if (view === 'lobby') {
     return (
