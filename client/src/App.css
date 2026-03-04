@@ -1,0 +1,228 @@
+#root {
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  background-color: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #0f0;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+h1 {
+  font-size: 3rem;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+  letter-spacing: 5px;
+  text-shadow: 0 0 10px #0f0;
+}
+
+canvas {
+  border: 1px solid #333;
+  image-rendering: pixelated;
+  background-color: #000;
+  box-shadow: inset 0 0 10px #000;
+}
+
+.controls {
+  margin-top: 20px;
+  font-size: 1.2rem;
+  opacity: 0.8;
+}
+
+.controls p {
+  margin: 5px 0;
+}
+
+.game-container {
+  text-align: center;
+  border: 4px double #0f0;
+  padding: 20px;
+  background-color: #050505;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+  min-width: 1280px;
+  position: relative;
+  overflow: hidden;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 10px;
+  border: 1px solid #111;
+  position: relative;
+  z-index: 105;
+}
+
+.player-stats {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 1.2rem;
+}
+
+.health-bar {
+  width: 200px;
+  height: 15px;
+  border: 1px solid #0f0;
+  padding: 2px;
+}
+
+.health-fill {
+  height: 100%;
+  background-color: #0f0;
+  box-shadow: 0 0 10px #0f0;
+  transition: width 0.3s ease;
+}
+
+.leaderboard {
+  text-align: right;
+  font-size: 0.9rem;
+}
+
+.lobby-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 50px;
+}
+
+.lobby-form input {
+  background: transparent;
+  border: 2px solid #0f0;
+  color: #0f0;
+  padding: 15px 25px;
+  font-size: 2rem;
+  font-family: 'Courier New', Courier, monospace;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+}
+
+.lobby-form button {
+  background: #0f0;
+  color: #000;
+  border: none;
+  padding: 15px 40px;
+  font-size: 1.5rem;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 0 15px #0f0;
+}
+
+.lobby-form button:hover {
+  background: #0d0;
+  box-shadow: 0 0 25px #0f0;
+}
+
+.admin-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  position: relative;
+  z-index: 110;
+}
+
+.admin-controls h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.lobby-controls {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.lobby-controls select {
+  background: #000;
+  color: #0f0;
+  border: 1px solid #0f0;
+  padding: 5px;
+  font-family: 'Courier New', Courier, monospace;
+  margin-left: 10px;
+}
+
+.admin-controls button {
+  background: #f0f;
+  color: #000;
+  border: none;
+  padding: 10px 20px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 0 10px #f0f;
+  transition: all 0.2s;
+}
+
+.admin-controls button:hover {
+  background: #f5f;
+  box-shadow: 0 0 20px #f0f;
+  transform: scale(1.05);
+}
+
+.admin-controls button:disabled {
+  background: #333;
+  color: #666;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.lobby-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 50, 0, 0.95);
+  border: 4px double #0f0;
+  padding: 40px;
+  text-align: center;
+  z-index: 50;
+  /* Needs to be lower than the header overlay */
+  box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+  pointer-events: none;
+  /* Make this overlay transparent to clicks */
+}
+
+.lobby-overlay h2 {
+  font-size: 2rem;
+  margin-bottom: 20px;
+  color: #0f0;
+}
+
+.footer-controls {
+  margin-top: 15px;
+  font-size: 0.9rem;
+  color: #0f0;
+  opacity: 0.7;
+  letter-spacing: 2px;
+}
+
+.name-plate,
+.score-plate {
+  font-weight: bold;
+  text-shadow: 0 0 5px #0f0;
+}
+
+/* Scanline effect */
+.game-container::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 100;
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none;
+}
