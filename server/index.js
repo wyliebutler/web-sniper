@@ -178,12 +178,48 @@ function updateEntities() {
     });
 
     gameState.bullets = gameState.bullets.filter(bullet => {
+        let prevX = bullet.x;
+        let prevY = bullet.y;
+
         bullet.x += bullet.vx;
         bullet.y += bullet.vy;
-        const gx = Math.floor(bullet.x);
-        const gy = Math.floor(bullet.y);
 
-        if (gameState.maze[gy] && gameState.maze[gy][gx] === 1) return false;
+        let gx = Math.floor(bullet.x);
+        let gy = Math.floor(bullet.y);
+
+        // Wall Collision & Rebounding
+        if (gameState.maze[gy] && gameState.maze[gy][gx] === 1) {
+            if (bullet.bounces <= 0) return false;
+            bullet.bounces--;
+
+            // Determine flip axis by checking which previous axis crosses the boundary
+            let prevGx = Math.floor(prevX);
+            let prevGy = Math.floor(prevY);
+
+            // If we hit a horizontal wall (Y crossed boundary into a wall block)
+            if (prevGy !== gy && gameState.maze[gy][prevGx] === 1) {
+                bullet.vy *= -1;
+                bullet.y = prevY + bullet.vy; // Snap back appropriately
+            }
+            // If we hit a vertical wall (X crossed boundary into a wall block)
+            else if (prevGx !== gx && gameState.maze[prevGy][gx] === 1) {
+                bullet.vx *= -1;
+                bullet.x = prevX + bullet.vx;
+            }
+            // Corner hit or fallback
+            else {
+                bullet.vx *= -1;
+                bullet.vy *= -1;
+                bullet.x = prevX + bullet.vx;
+                bullet.y = prevY + bullet.vy;
+            }
+
+            // Recalculate grid pos after bounce
+            gx = Math.floor(bullet.x);
+            gy = Math.floor(bullet.y);
+            // If it miraculously bounced into another wall (stuck), kill it
+            if (gameState.maze[gy] && gameState.maze[gy][gx] === 1) return false;
+        }
 
         let hit = false;
 
@@ -381,12 +417,21 @@ io.on('connection', (socket) => {
     socket.on('shoot', (data) => {
         const player = gameState.players[socket.id];
         if (player && player.isAlive && gameState.matchState === 'RUNNING') {
+
+            // Normalize velocity for diagonal shooting
+            let mag = Math.sqrt(data.vx * data.vx + data.vy * data.vy);
+            if (mag === 0) return;
+
+            let speedX = (data.vx / mag) * 0.4;
+            let speedY = (data.vy / mag) * 0.4;
+
             gameState.bullets.push({
                 x: player.x,
                 y: player.y,
-                vx: data.vx * 0.4,
-                vy: data.vy * 0.4,
-                ownerId: socket.id
+                vx: speedX,
+                vy: speedY,
+                ownerId: socket.id,
+                bounces: 1 // Bullets can rebound off 1 wall
             });
             socket.broadcast.emit('player_shoot', { id: socket.id });
         }
