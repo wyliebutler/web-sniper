@@ -40,9 +40,9 @@ function App() {
   const [maze, setMaze] = useState(null);
   const [matchState, setMatchState] = useState('LOBBY');
 
-
   useEffect(() => {
-    const serverUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
+    // If running in dev mode, hit the localhost backend. If in production (Docker/Nginx), use relative paths to route through reverse proxy
+    const serverUrl = import.meta.env.DEV ? 'http://localhost:3001' : '';
     socketRef.current = io(serverUrl);
     const socket = socketRef.current; // Alias for brevity
 
