@@ -26,7 +26,8 @@ const gameState = {
     hives: [],
     bullets: [],
     maze: [],
-    lastUpdateTime: Date.now()
+    lastUpdateTime: Date.now(),
+    matchStartTime: 0
 };
 
 // Maze Constants
@@ -35,10 +36,11 @@ const MAZE_HEIGHT = 20;
 
 function resetGame() {
     gameState.snipes = [];
-    gameState.hives = [];
     gameState.bullets = [];
-    gameState.maze = generateMaze();
+    gameState.hives = [];
     spawnHives(15);
+    gameState.matchStartTime = Date.now();
+    gameState.maze = generateMaze();
     Object.values(gameState.players).forEach(p => {
         p.score = 0;
         p.health = 100;
@@ -90,9 +92,18 @@ function spawnHives(count) {
 
 function spawnSnipesPerHive() {
     if (gameState.matchState !== 'RUNNING') return;
-    if (gameState.snipes.length > 50) return; // Cap the spawn at 50 to prevent swamping the server
 
-    gameState.hives.forEach(hive => {
+    // Scale max snipes over time too (start small, grow to 60)
+    const elapsedSecs = (Date.now() - gameState.matchStartTime) / 1000;
+    const currentMaxSnipes = Math.min(60, 5 + Math.floor(elapsedSecs / 2));
+    if (gameState.snipes.length >= currentMaxSnipes) return;
+
+    // Wake up 1 additional hive every 10 seconds of gameplay
+    const activeHiveCount = Math.min(gameState.hives.length, 1 + Math.floor(elapsedSecs / 10));
+
+    // Only process the currently "awake" hives
+    for (let i = 0; i < activeHiveCount; i++) {
+        const hive = gameState.hives[i];
         if (hive.health > 0) {
             let type = 'basic';
             const rnd = Math.random();
@@ -109,11 +120,11 @@ function spawnSnipesPerHive() {
                 lastShot: 0
             });
         }
-    });
+    }
 }
 
 spawnHives(15);
-setInterval(spawnSnipesPerHive, 10000); // 10 seconds spawn wave
+setInterval(spawnSnipesPerHive, 5000); // 5 seconds spawn wave, but limited by awake hives
 
 function updateEntities() {
     if (gameState.matchState !== 'RUNNING') return;
@@ -320,7 +331,9 @@ io.on('connection', (socket) => {
     socket.on('set_mode', (mode) => {
         if (gameState.matchState === 'LOBBY' && (mode === 'COOP' || mode === 'DEATHMATCH')) {
             gameState.gameMode = mode;
-            io.emit('stateUpdate', { gameMode: gameState.gameMode });
+            gameState.countdown = 3;
+            gameState.matchStartTime = 0;
+            io.emit('stateUpdate', { gameMode: gameState.gameMode, countdown: gameState.countdown });
         }
     });
 
@@ -334,6 +347,7 @@ io.on('connection', (socket) => {
                 if (gameState.countdown <= 0) {
                     clearInterval(timer);
                     gameState.matchState = 'RUNNING';
+                    gameState.matchStartTime = Date.now();
                     console.log('Match state: RUNNING. Resetting game entities...');
                     resetGame();
                     // Explicitly emit maze to everyone on start

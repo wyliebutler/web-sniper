@@ -166,10 +166,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!socketRef.current || view !== 'game' || !gameState || gameState.matchState !== 'RUNNING') return;
+    if (!socketRef.current || view !== 'game') return;
 
     let animFrame;
     const checkInputs = () => {
+      if (gameStateRef.current?.matchState !== 'RUNNING') {
+        animFrame = requestAnimationFrame(checkInputs);
+        return;
+      }
+
       const keys = keysRef.current;
       let dx = 0, dy = 0;
       if (keys['ArrowUp']) dy -= 1;
@@ -200,7 +205,7 @@ function App() {
     };
     animFrame = requestAnimationFrame(checkInputs);
     return () => cancelAnimationFrame(animFrame);
-  }, [view, matchState]);
+  }, [view]);
 
   // High-Speed Render Loop
   useEffect(() => {
