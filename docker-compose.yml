@@ -1,5 +1,6 @@
 services:
   server:
+    restart: unless-stopped
     build: ./server
     ports:
       - "3001:3001"
@@ -7,6 +8,7 @@ services:
       - PORT=3001
 
   client:
+    restart: unless-stopped
     build: ./client
     ports:
       - "8080:80"
