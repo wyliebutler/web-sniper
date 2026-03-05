@@ -75,10 +75,18 @@ function App() {
           }
         }
 
-        gameStateRef.current = {
+        const nextState = {
           ...gameStateRef.current,
           ...state
         };
+        gameStateRef.current = nextState;
+
+        // Throttle React UI updates to ~5Hz so the HUD updates without lagging the canvas loop
+        const now = Date.now();
+        if (now - (gameStateRef.current.lastReactUpdate || 0) > 200) {
+          setGameState(nextState);
+          gameStateRef.current.lastReactUpdate = now;
+        }
       }
     });
 
@@ -183,9 +191,12 @@ function App() {
       if (keys['ArrowRight']) dx += 1;
 
       const lastInput = lastInputRef.current;
-      if (dx !== lastInput.dx || dy !== lastInput.dy) {
+      const now = Date.now();
+
+      // Emit if keys changed, OR emit continuously every 200ms to guarantee server has proper held inputs (fixes post-death unresponsiveness)
+      if (dx !== lastInput.dx || dy !== lastInput.dy || (now - (lastInput.time || 0) > 200)) {
         socketRef.current.emit('input_change', { dx, dy });
-        lastInputRef.current = { dx, dy };
+        lastInputRef.current = { dx, dy, time: now };
       }
 
       let vx = 0, vy = 0;
@@ -194,11 +205,11 @@ function App() {
       if (keys['KeyA']) vx -= 1;
       if (keys['KeyD']) vx += 1;
 
-      const now = Date.now();
-      if ((vx !== 0 || vy !== 0) && now - lastShootTimeRef.current > 200) {
+      const shootNow = Date.now();
+      if ((vx !== 0 || vy !== 0) && shootNow - lastShootTimeRef.current > 200) {
         socketRef.current.emit('shoot', { vx, vy });
         playSound(600, 'square', 0.05, 0.1);
-        lastShootTimeRef.current = now;
+        lastShootTimeRef.current = shootNow;
       }
 
       animFrame = requestAnimationFrame(checkInputs);

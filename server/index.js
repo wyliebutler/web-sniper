@@ -54,6 +54,8 @@ function resetGame() {
         } while (gameState.maze[py][px] === 1);
         p.x = px + 0.5;
         p.y = py + 0.5;
+        p.dx = 0;
+        p.dy = 0;
     });
 }
 
@@ -93,13 +95,13 @@ function spawnHives(count) {
 function spawnSnipesPerHive() {
     if (gameState.matchState !== 'RUNNING') return;
 
-    // Scale max snipes over time too (start small, grow to 60)
+    // Scale max snipes over time too (start small, grow to 30)
     const elapsedSecs = (Date.now() - gameState.matchStartTime) / 1000;
-    const currentMaxSnipes = Math.min(60, 5 + Math.floor(elapsedSecs / 2));
+    const currentMaxSnipes = Math.min(30, 3 + Math.floor(elapsedSecs / 5));
     if (gameState.snipes.length >= currentMaxSnipes) return;
 
-    // Wake up 1 additional hive every 10 seconds of gameplay
-    const activeHiveCount = Math.min(gameState.hives.length, 1 + Math.floor(elapsedSecs / 10));
+    // Wake up 1 additional hive every 20 seconds of gameplay
+    const activeHiveCount = Math.min(gameState.hives.length, 1 + Math.floor(elapsedSecs / 20));
 
     // Only process the currently "awake" hives
     for (let i = 0; i < activeHiveCount; i++) {
@@ -174,19 +176,23 @@ function updateEntities() {
         }
 
         let nextX = snipe.x + snipe.vx;
-        let nextY = snipe.y + snipe.vy;
+        const gxX = Math.floor(nextX);
+        const gyX = Math.floor(snipe.y);
 
-        const gx = Math.floor(nextX);
-        const gy = Math.floor(nextY);
-
-        // Simple collision for snipes
-        if (gameState.maze[gy] && gameState.maze[gy][gx] === 0) {
+        if (gameState.maze[gyX] && gameState.maze[gyX][gxX] === 0) {
             snipe.x = nextX;
+        } else {
+            if (!target) snipe.vx *= -1; // Only bounce if wandering blindly
+        }
+
+        let nextY = snipe.y + snipe.vy;
+        const gxY = Math.floor(snipe.x);
+        const gyY = Math.floor(nextY);
+
+        if (gameState.maze[gyY] && gameState.maze[gyY][gxY] === 0) {
             snipe.y = nextY;
         } else {
-            // Bounce off walls
-            snipe.vx *= -1;
-            snipe.vy *= -1;
+            if (!target) snipe.vy *= -1;
         }
     });
 
