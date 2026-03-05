@@ -90,6 +90,8 @@ function spawnHives(count) {
 
 function spawnSnipesPerHive() {
     if (gameState.matchState !== 'RUNNING') return;
+    if (gameState.snipes.length > 50) return; // Cap the spawn at 50 to prevent swamping the server
+
     gameState.hives.forEach(hive => {
         if (hive.health > 0) {
             let type = 'basic';
@@ -111,7 +113,7 @@ function spawnSnipesPerHive() {
 }
 
 spawnHives(15);
-setInterval(spawnSnipesPerHive, 4000);
+setInterval(spawnSnipesPerHive, 10000); // 10 seconds spawn wave
 
 function updateEntities() {
     if (gameState.matchState !== 'RUNNING') return;

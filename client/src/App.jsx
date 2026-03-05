@@ -200,7 +200,7 @@ function App() {
     };
     animFrame = requestAnimationFrame(checkInputs);
     return () => cancelAnimationFrame(animFrame);
-  }, [view, gameState?.matchState]);
+  }, [view, matchState]);
 
   // High-Speed Render Loop
   useEffect(() => {
