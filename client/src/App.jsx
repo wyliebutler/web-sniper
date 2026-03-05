@@ -62,24 +62,24 @@ function App() {
     socket.on('stateUpdate', (state) => {
       if (state.matchState) setMatchState(state.matchState);
       if (state.countdown !== undefined) setCountdown(state.countdown);
-      if (state.maze) setMaze(state.maze);
-      if (state.hives) setHives(state.hives);
       if (state.gameMode) setGameMode(state.gameMode);
 
-      setGameState(prev => {
-        if (prev && prev.players[myId] && state.players[myId]) {
-          if (state.players[myId].health < prev.players[myId].health) {
+      // IMPORTANT: Update the mutable ref directly, skipping React's slow render lifecycle
+      if (gameStateRef.current) {
+        if (state.players && gameStateRef.current.players[myId] && state.players[myId]) {
+          if (state.players[myId].health < gameStateRef.current.players[myId].health) {
             setFlash(true);
             flashTimeRef.current = Date.now();
             playSound(150, 'sawtooth', 0.2, 0.2);
             setTimeout(() => setFlash(false), 100);
           }
         }
-        // If maze is provided in stateUpdate (on match start), update it
-        const nextState = { ...prev, ...state };
-        gameStateRef.current = nextState;
-        return nextState;
-      });
+
+        gameStateRef.current = {
+          ...gameStateRef.current,
+          ...state
+        };
+      }
     });
 
     socket.on('player_shoot', () => {
@@ -213,16 +213,12 @@ function App() {
       if (!currentState || !currentState.maze) return;
 
       const ctx = canvasRef.current.getContext('2d');
-      const { players, snipes, matchState, countdown } = currentState;
-      const currentMaze = maze || currentState.maze;
-      const currentHives = hives.length > 0 ? hives : currentState.hives;
-      const currentBullets = bullets.length > 0 ? bullets : currentState.bullets;
-
-      if (!currentMaze || !players || !currentHives) return;
+      const { players, snipes, matchState, countdown, maze, hives, bullets } = currentState;
+      if (!maze || !players || !hives) return;
 
       // Set canvas dimensions
-      const MAZE_WIDTH = currentMaze[0].length;
-      const MAZE_HEIGHT = currentMaze.length;
+      const MAZE_WIDTH = maze[0].length;
+      const MAZE_HEIGHT = maze.length;
       canvasRef.current.width = MAZE_WIDTH * CELL_SIZE;
       canvasRef.current.height = MAZE_HEIGHT * CELL_SIZE;
 
@@ -238,13 +234,13 @@ function App() {
       try {
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
-        for (let y = 0; y < currentMaze.length; y++) {
-          for (let x = 0; x < currentMaze[y].length; x++) {
-            if (currentMaze[y][x] === 1) {
-              const top = y > 0 && currentMaze[y - 1][x] === 1;
-              const bottom = y < MAZE_HEIGHT - 1 && currentMaze[y + 1][x] === 1;
-              const left = x > 0 && currentMaze[y][x - 1] === 1;
-              const right = x < MAZE_WIDTH - 1 && currentMaze[y][x + 1] === 1;
+        for (let y = 0; y < maze.length; y++) {
+          for (let x = 0; x < maze[y].length; x++) {
+            if (maze[y][x] === 1) {
+              const top = y > 0 && maze[y - 1][x] === 1;
+              const bottom = y < MAZE_HEIGHT - 1 && maze[y + 1][x] === 1;
+              const left = x > 0 && maze[y][x - 1] === 1;
+              const right = x < MAZE_WIDTH - 1 && maze[y][x + 1] === 1;
               ctx.beginPath();
               if (top) {
                 ctx.moveTo(x * CELL_SIZE + CELL_SIZE / 2 - 2, y * CELL_SIZE);
@@ -285,8 +281,8 @@ function App() {
       if (matchState === 'RUNNING' || matchState === 'GAME_OVER') {
         // Draw Hives
         ctx.fillStyle = '#0ff';
-        if (currentHives) {
-          currentHives.forEach(h => ctx.fillText('⌂', h.x * CELL_SIZE, h.y * CELL_SIZE));
+        if (hives) {
+          hives.forEach(h => ctx.fillText('⌂', h.x * CELL_SIZE, h.y * CELL_SIZE));
         }
 
         // Draw Snipes
@@ -301,8 +297,8 @@ function App() {
 
         // Draw Bullets
         ctx.fillStyle = '#fff';
-        if (currentBullets) {
-          currentBullets.forEach(b => ctx.fillText('·', b.x * CELL_SIZE, b.y * CELL_SIZE));
+        if (bullets) {
+          bullets.forEach(b => ctx.fillText('·', b.x * CELL_SIZE, b.y * CELL_SIZE));
         }
       }
 
@@ -359,7 +355,7 @@ function App() {
     }; // end render
     animFrame = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animFrame);
-  }, [view, myId, maze, hives, bullets]);
+  }, [view, myId]);
 
   if (view === 'lobby') {
     return (
@@ -451,5 +447,4 @@ function App() {
     </div>
   );
 }
-
 export default App;

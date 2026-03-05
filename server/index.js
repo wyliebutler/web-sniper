@@ -189,8 +189,8 @@ function updateEntities() {
 
         // Wall Collision & Rebounding
         if (gameState.maze[gy] && gameState.maze[gy][gx] === 1) {
-            if (bullet.bounces <= 0) return false;
             bullet.bounces--;
+            if (bullet.bounces < 0) return false;
 
             // Determine flip axis by checking which previous axis crosses the boundary
             let prevGx = Math.floor(prevX);
