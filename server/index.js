@@ -85,9 +85,11 @@ function spawnHives(count) {
     for (let i = 0; i < count; i++) {
         let x, y;
         do {
-            x = Math.floor(Math.random() * (MAZE_WIDTH - 2)) + 1;
-            y = Math.floor(Math.random() * (MAZE_HEIGHT - 2)) + 1;
-        } while (gameState.maze[y][x] === 1);
+            // Spawn strictly inside the map away from borders (3 to MAZE_WIDTH/HEIGHT - 4)
+            // ensuring odd-odd coordinates puts them directly in the center of pathway junctions
+            x = Math.floor(Math.random() * (MAZE_WIDTH - 6)) + 3;
+            y = Math.floor(Math.random() * (MAZE_HEIGHT - 6)) + 3;
+        } while (gameState.maze[y][x] === 1 || x % 2 === 0 || y % 2 === 0);
         gameState.hives.push({ id: `hive-${i}`, x: x + 0.5, y: y + 0.5, health: 3 });
     }
 }
