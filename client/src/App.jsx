@@ -407,6 +407,8 @@ function App() {
             <div className="health-bar">
               <div className="health-fill" style={{ width: `${localPlayer?.health || 0}%` }}></div>
             </div>
+            <div className="score-plate">SCORE: {localPlayer?.score || 0}</div>
+            
             {/* Leaderboard Moved Next to Stats in Header */}
             <div className="leaderboard">
               {Object.values(gameState?.players || {})
@@ -421,24 +423,24 @@ function App() {
             </div>
 
           </div>
-        </div>
-
-        {isAdmin && (
-          <div className="admin-controls">
-            <h2>Lobby Administrator</h2>
-            <div className="lobby-controls">
-              <label>
-                Mode:
-                <select value={gameMode} onChange={(e) => socketRef.current.emit('set_mode', e.target.value)}>
-                  <option value="COOP">Co-Op Survival</option>
-                  <option value="DEATHMATCH">Deathmatch</option>
-                </select>
-              </label>
-              <button className="retro-btn start" onClick={() => socketRef.current.emit('admin_start')}>START MATCH</button>
-            </div>
-            <button onClick={adminReset}>RESET</button>
+          
+          <div className="game-info">
+             <div className="mode-display">MODE: {gameMode}</div>
+             {isAdmin && matchState === 'LOBBY' && (
+               <div className="admin-header-controls">
+                 <button onClick={() => socketRef.current.emit('set_mode', gameMode === 'COOP' ? 'DEATHMATCH' : 'COOP')}>
+                   TOGGLE MODE
+                 </button>
+                 <button className="start-btn" onClick={() => socketRef.current.emit('admin_start')}>START</button>
+               </div>
+             )}
+              {isAdmin && matchState !== 'LOBBY' && (
+                 <div className="admin-header-controls">
+                     <button onClick={adminReset}>RESET</button>
+                 </div>
+              )}
           </div>
-        )}
+        </div>
 
         <canvas ref={canvasRef} />
 
