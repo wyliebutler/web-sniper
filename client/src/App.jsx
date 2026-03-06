@@ -34,6 +34,8 @@ function App() {
   const particlesRef = useRef([]); // { x, y, vx, vy, life, color, size }
   const shakeRef = useRef(0);
   const lastStateDataRef = useRef(null); // For comparing entity removal
+  const ambientNodesRef = useRef(null); // { drone, filter, gain }
+  const snipesHumRef = useRef(null); // { osc, gain }
   const [name, setName] = useState('');
   const [view, setView] = useState('lobby'); // lobby, game
   const [flash, setFlash] = useState(false);
@@ -80,6 +82,11 @@ function App() {
       if (data.gameMode) setGameMode(data.gameMode);
       if (data.matchState) setMatchState(data.matchState);
       if (data.maxPlayers) setMaxPlayers(data.maxPlayers);
+      
+      // Initialize Ambient Drone if not already running
+      if (audioCtx && !ambientNodesRef.current) {
+        initAmbientAudio();
+      }
     });
 
     socket.on('server_full', () => {
@@ -159,17 +166,64 @@ function App() {
 
     socket.on('gameOver', (data) => {
       setGameOverReason(data.reason || 'GAME OVER');
+      // Lower ambient intensity on game over
+      if (ambientNodesRef.current) {
+          ambientNodesRef.current.gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 2);
+      }
     });
 
-    return () => socket.disconnect();
+    return () => {
+        socket.disconnect();
+        if (ambientNodesRef.current) {
+            ambientNodesRef.current.osc.stop();
+            snipesHumRef.current?.osc.stop();
+        }
+    };
   }, []); // Run only once on mount
+
+  const initAmbientAudio = () => {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Low drone
+    const osc = audioCtx.createOscillator();
+    const filter = audioCtx.createBiquadFilter();
+    const gain = audioCtx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(55, audioCtx.currentTime); // Low A
+    
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(200, audioCtx.currentTime);
+    
+    gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start();
+    ambientNodesRef.current = { osc, filter, gain };
+
+    // Sniper proximity hum
+    const sOsc = audioCtx.createOscillator();
+    const sGain = audioCtx.createGain();
+    sOsc.type = 'sine';
+    sOsc.frequency.setValueAtTime(110, audioCtx.currentTime);
+    sGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    sOsc.connect(sGain);
+    sGain.connect(audioCtx.destination);
+    sOsc.start();
+    snipesHumRef.current = { osc: sOsc, gain: sGain };
+  };
 
   const joinGame = (e) => {
     e.preventDefault();
     if (!name) return;
     socketRef.current.emit('join', { name });
     setView('game');
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!ambientNodesRef.current) initAmbientAudio();
   };
 
   const adminStart = () => {
@@ -273,6 +327,37 @@ function App() {
         socketRef.current.emit('shoot', { vx, vy });
         playSound(600, 'square', 0.05, 0.1);
         lastShootTimeRef.current = shootNow;
+      }
+
+      // Proximity Hum Logic
+      if (gameStateRef.current && snipesHumRef.current && myId) {
+          const players = gameStateRef.current.players;
+          const snipes = gameStateRef.current.snipes;
+          const me = players[myId];
+          if (me && snipes && snipes.length > 0) {
+              let minDist = 10;
+              snipes.forEach(s => {
+                  const d = Math.sqrt((s.x - me.x)**2 + (s.y - me.y)**2);
+                  if (d < minDist) minDist = d;
+              });
+
+              const volume = Math.max(0, 0.15 * (1 - minDist / 10));
+              const pitch = 110 + (1 - minDist / 10) * 50;
+              
+              snipesHumRef.current.gain.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.1);
+              snipesHumRef.current.osc.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.1);
+          } else {
+              snipesHumRef.current.gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+          }
+
+          // Adjust ambient drone based on match intensity
+          if (ambientNodesRef.current && snipes) {
+              const intensity = Math.min(1, snipes.length / 30);
+              const cutoff = 200 + intensity * 800;
+              const vol = 0.02 + intensity * 0.03;
+              ambientNodesRef.current.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.5);
+              ambientNodesRef.current.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.5);
+          }
       }
 
       animFrame = requestAnimationFrame(checkInputs);
