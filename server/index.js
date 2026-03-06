@@ -116,7 +116,7 @@ function spawnSnipesPerHive() {
             else if (rnd > 0.6) type = 'fast';
 
             gameState.snipes.push({
-                id: `snipe-${Date.now()}-${Math.random()}`,
+                id: `snipe-${Math.random().toString(36).substr(2, 9)}`,
                 x: hive.x,
                 y: hive.y,
                 vx: 0,
@@ -411,6 +411,7 @@ io.on('connection', (socket) => {
             let speedY = (data.vy / mag) * 0.4;
 
             gameState.bullets.push({
+                id: Math.random().toString(36).substr(2, 9),
                 x: player.x,
                 y: player.y,
                 vx: speedX,

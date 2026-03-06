@@ -31,6 +31,9 @@ function App() {
   const lastInputRef = useRef({ dx: 0, dy: 0 });
   const lastShootTimeRef = useRef(0);
   const flashTimeRef = useRef(0);
+  const particlesRef = useRef([]); // { x, y, vx, vy, life, color, size }
+  const shakeRef = useRef(0);
+  const lastStateDataRef = useRef(null); // For comparing entity removal
   const [name, setName] = useState('');
   const [view, setView] = useState('lobby'); // lobby, game
   const [flash, setFlash] = useState(false);
@@ -45,6 +48,23 @@ function App() {
   const [matchState, setMatchState] = useState('LOBBY');
   const [maxPlayers, setMaxPlayers] = useState(15);
   const [serverFull, setServerFull] = useState(false);
+
+  // Helper to spawn explosion/impact particles
+  const spawnParticles = (x, y, count, color, size = 2) => {
+    for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 2 + 1;
+        particlesRef.current.push({
+            x: x * CELL_SIZE,
+            y: y * CELL_SIZE,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            color: color,
+            size: size
+        });
+    }
+  };
 
   useEffect(() => {
     // If running in dev mode, hit the localhost backend. If in production (Docker/Nginx), use relative paths to route through reverse proxy
@@ -78,10 +98,45 @@ function App() {
           if (state.players[myId].health < gameStateRef.current.players[myId].health) {
             setFlash(true);
             flashTimeRef.current = Date.now();
+            shakeRef.current = 10; // Trigger Screen Shake
             playSound(150, 'sawtooth', 0.2, 0.2);
             setTimeout(() => setFlash(false), 100);
           }
         }
+
+        // Compare entities to trigger "Death Particles"
+        const prev = lastStateDataRef.current;
+        if (prev) {
+            // Snipes removed
+            if (prev.snipes && state.snipes) {
+                const currentIds = new Set(state.snipes.map(s => s.id));
+                prev.snipes.forEach(s => {
+                    if (!currentIds.has(s.id)) {
+                        spawnParticles(s.x, s.y, 8, '#f0f', 3); // Pink explosion
+                    }
+                });
+            }
+            // Hives removed
+            if (prev.hives && state.hives) {
+                const currentIds = new Set(state.hives.map(h => h.id));
+                prev.hives.forEach(h => {
+                    if (!currentIds.has(h.id)) {
+                        spawnParticles(h.x, h.y, 20, '#0ff', 5); // Cyan big explosion
+                        shakeRef.current = 15;
+                    }
+                });
+            }
+            // Bullets removed (Impact sparks)
+            if (prev.bullets && state.bullets) {
+                const currentIds = new Set(state.bullets.map(b => b.id));
+                prev.bullets.forEach(b => {
+                    if (!currentIds.has(b.id)) {
+                        spawnParticles(b.x, b.y, 4, '#ff0', 1.5); // Yellow sparks
+                    }
+                });
+            }
+        }
+        lastStateDataRef.current = state;
 
         const nextState = {
           ...gameStateRef.current,
@@ -250,6 +305,14 @@ function App() {
       ctx.fillStyle = isFlashing ? '#300' : '#000';
       ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
+      // --- Apply Screen Shake ---
+      if (shakeRef.current > 0.1) {
+          const sx = (Math.random() - 0.5) * shakeRef.current;
+          const sy = (Math.random() - 0.5) * shakeRef.current;
+          ctx.translate(sx, sy);
+          shakeRef.current *= 0.9;
+      }
+
       ctx.font = FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -302,20 +365,45 @@ function App() {
         console.error('Render error in maze:', e);
       }
 
+      // --- Particles ---
+      particlesRef.current = particlesRef.current.filter(p => p.life > 0);
+      particlesRef.current.forEach(p => {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life -= 0.02;
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.life;
+          ctx.fillRect(p.x, p.y, p.size, p.size);
+      });
+      ctx.globalAlpha = 1.0;
+
       if (matchState === 'RUNNING' || matchState === 'GAME_OVER') {
-        // Draw Hives
+        // Draw Hives (with breathing anim)
+        const hivePulse = 1.0 + Math.sin(Date.now() / 400) * 0.05;
         ctx.fillStyle = '#0ff';
         if (hives) {
-          hives.forEach(h => ctx.fillText('⌂', h.x * CELL_SIZE, h.y * CELL_SIZE));
+          hives.forEach(h => {
+              ctx.save();
+              ctx.translate(h.x * CELL_SIZE, h.y * CELL_SIZE);
+              ctx.scale(hivePulse, hivePulse);
+              ctx.fillText('⌂', 0, 0);
+              ctx.restore();
+          });
         }
 
-        // Draw Snipes
+        // Draw Snipes (with wiggle)
         if (snipes) {
           snipes.forEach(s => {
-            if (s.type === 'fast') ctx.fillStyle = '#0ff'; // Cyan
-            else if (s.type === 'shooter') ctx.fillStyle = '#f00'; // Red
-            else ctx.fillStyle = '#f0f'; // Pink
-            ctx.fillText('∩', s.x * CELL_SIZE, s.y * CELL_SIZE);
+            // Use a numeric seed for the wiggle based on the ID string
+            const seed = typeof s.id === 'string' ? s.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : s.id;
+            const wiggle = Math.sin(Date.now() / 150 + seed) * 2;
+            ctx.save();
+            ctx.translate(s.x * CELL_SIZE, s.y * CELL_SIZE + wiggle);
+            if (s.type === 'fast') ctx.fillStyle = '#0ff'; 
+            else if (s.type === 'shooter') ctx.fillStyle = '#f00'; 
+            else ctx.fillStyle = '#f0f'; 
+            ctx.fillText('∩', 0, 0);
+            ctx.restore();
           });
         }
 
