@@ -426,7 +426,7 @@ function App() {
             <div className="leaderboard">
               {Object.values(gameState?.players || {})
                 .sort((a, b) => b.score - a.score)
-                .slice(0, 5)
+                .slice(0, 10)
                 .map((p, i) => (
                   <div key={p.id} style={{ color: p.id === myId ? '#0f0' : p.color }}>
                     {i + 1}. {p.name}: {p.score}
