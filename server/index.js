@@ -33,6 +33,7 @@ const gameState = {
 // Maze Constants
 const MAZE_WIDTH = 41;  // Scale down grid bounds since gaps are wider
 const MAZE_HEIGHT = 21;
+const MAX_PLAYERS = 15;
 
 function resetGame() {
     gameState.snipes = [];
@@ -302,6 +303,13 @@ function updateEntities() {
 }
 
 io.on('connection', (socket) => {
+    if (Object.keys(gameState.players).length >= MAX_PLAYERS) {
+        console.log('Connection rejected: Server full');
+        socket.emit('server_full');
+        socket.disconnect(true);
+        return;
+    }
+
     console.log('A user connected:', socket.id);
 
     let px, py;
@@ -379,7 +387,8 @@ io.on('connection', (socket) => {
         players: gameState.players,
         hives: gameState.hives,
         matchState: gameState.matchState,
-        id: socket.id
+        id: socket.id,
+        maxPlayers: MAX_PLAYERS
     });
 
     socket.on('input_change', (data) => {

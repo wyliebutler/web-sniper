@@ -43,6 +43,8 @@ function App() {
   const [gameOverReason, setGameOverReason] = useState('');
   const [maze, setMaze] = useState(null);
   const [matchState, setMatchState] = useState('LOBBY');
+  const [maxPlayers, setMaxPlayers] = useState(15);
+  const [serverFull, setServerFull] = useState(false);
 
   useEffect(() => {
     // If running in dev mode, hit the localhost backend. If in production (Docker/Nginx), use relative paths to route through reverse proxy
@@ -57,6 +59,12 @@ function App() {
       setMyId(data.id);
       if (data.gameMode) setGameMode(data.gameMode);
       if (data.matchState) setMatchState(data.matchState);
+      if (data.maxPlayers) setMaxPlayers(data.maxPlayers);
+    });
+
+    socket.on('server_full', () => {
+        setServerFull(true);
+        socket.disconnect();
     });
 
     socket.on('stateUpdate', (state) => {
@@ -385,8 +393,13 @@ function App() {
               value={name}
               onChange={(e) => setName(e.target.value.substring(0, 10).toUpperCase())}
               autoFocus
+              disabled={serverFull}
             />
-            <button type="submit">JOIN GAME</button>
+            {serverFull ? (
+                <div style={{color: '#f00', marginTop: '10px', fontWeight: 'bold'}}>SERVER IS FULL (MAX {maxPlayers})</div>
+            ) : (
+                <button type="submit">JOIN GAME</button>
+            )}
           </form>
           <div className="controls">
             <p>ARROWS: MOVE | WASD: SHOOT</p>
@@ -425,7 +438,10 @@ function App() {
           </div>
           
           <div className="game-info">
-             <div className="mode-display">MODE: {gameMode}</div>
+             <div className="mode-display">
+               MODE: {gameMode} <br/>
+               PLAYERS: {Object.keys(gameState?.players || {}).length}/{maxPlayers}
+             </div>
              {isAdmin && matchState === 'LOBBY' && (
                <div className="admin-header-controls">
                  <button onClick={() => socketRef.current.emit('set_mode', gameMode === 'COOP' ? 'DEATHMATCH' : 'COOP')}>
@@ -446,8 +462,8 @@ function App() {
 
         {matchState === 'LOBBY' && (
           <div className="lobby-overlay">
-            <h2>WAITING FOR ADMIN TO START</h2>
-            <p>PLAYERS CONNECTED: {Object.keys(gameState?.players || {}).length}</p>
+             <h2>WAITING FOR ADMIN TO START</h2>
+             <p>PLAYERS CONNECTED: {Object.keys(gameState?.players || {}).length} of {maxPlayers}(max)</p>
           </div>
         )}
 
