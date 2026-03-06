@@ -35,7 +35,7 @@ You need [Docker](https://www.docker.com/) and [Docker Compose](https://docs.doc
 2. **Start the containers:**
    The project ships with a pre-configured `docker-compose.yml` that handles both the client frontend and backend server.
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
    > **Note:** We use `restart: unless-stopped` for both services to ensure high availability.
 
@@ -43,8 +43,8 @@ You need [Docker](https://www.docker.com/) and [Docker Compose](https://docs.doc
    To pull the latest updates if the repository or image changes, simply pull the changes, rebuild or pull the fresh images, and restart:
    ```bash
    git pull origin main
-   docker-compose pull
-   docker-compose up -d --build
+   docker compose pull
+   docker compose up -d --build
    ```
 
    - **Client:** Open your browser and navigate to `http://localhost:8080`.

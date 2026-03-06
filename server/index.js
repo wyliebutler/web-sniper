@@ -31,8 +31,8 @@ const gameState = {
 };
 
 // Maze Constants
-const MAZE_WIDTH = 40;  // Scale down grid bounds since gaps are wider
-const MAZE_HEIGHT = 20;
+const MAZE_WIDTH = 41;  // Scale down grid bounds since gaps are wider
+const MAZE_HEIGHT = 21;
 
 function resetGame() {
     gameState.snipes = [];
