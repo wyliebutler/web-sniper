@@ -329,6 +329,7 @@ io.on('connection', (socket) => {
         health: 100,
         lives: 3,
         isAlive: true,
+        lastProcessedSeq: -1, // Track last processed input for CSP
         color: '#' + Math.floor(Math.random() * 16777215).toString(16)
     };
 
@@ -396,6 +397,9 @@ io.on('connection', (socket) => {
         if (player && player.isAlive && gameState.matchState === 'RUNNING') {
             player.dx = data.dx || 0;
             player.dy = data.dy || 0;
+            if (data.seq !== undefined) {
+                player.lastProcessedSeq = data.seq;
+            }
         }
     });
 
@@ -573,13 +577,17 @@ setInterval(() => {
     updatePlayers();
     checkWinConditions();
     gameState.lastUpdateTime = Date.now();
-    io.emit('stateUpdate', {
-        matchState: gameState.matchState,
-        countdown: gameState.countdown,
-        players: gameState.players,
-        snipes: gameState.snipes,
-        hives: gameState.hives,
-        bullets: gameState.bullets
+    // Broadcast global state, but specialized per-player for sequence tracking
+    Object.keys(gameState.players).forEach(id => {
+        io.to(id).emit('stateUpdate', {
+            matchState: gameState.matchState,
+            countdown: gameState.countdown,
+            players: gameState.players,
+            snipes: gameState.snipes,
+            hives: gameState.hives,
+            bullets: gameState.bullets,
+            lastProcessedSeq: gameState.players[id].lastProcessedSeq
+        });
     });
 }, 1000 / 30);
 
