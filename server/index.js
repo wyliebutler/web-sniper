@@ -414,9 +414,21 @@ io.on('connection', (socket) => {
             let speedX = (data.vx / mag) * 0.4;
             let speedY = (data.vy / mag) * 0.4;
 
+            // Use client-provided coordinates if they're within a reasonable distance (anti-cheat/safety)
+            let spawnX = player.x;
+            let spawnY = player.y;
+
+            if (data.x !== undefined && data.y !== undefined) {
+                const dist = Math.sqrt((data.x - player.x) ** 2 + (data.y - player.y) ** 2);
+                if (dist < 2.0) { // Allowed 2.0 cell discrepancy for high ping
+                    spawnX = data.x;
+                    spawnY = data.y;
+                }
+            }
+
             gameState.bullets.push({
-                x: player.x,
-                y: player.y,
+                x: spawnX,
+                y: spawnY,
                 vx: speedX,
                 vy: speedY,
                 ownerId: socket.id,

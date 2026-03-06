@@ -299,11 +299,11 @@ function App() {
     if (!socketRef.current || view !== 'game') return;
 
     let animFrame;
-    const checkInputs = () => {
-      if (gameStateRef.current?.matchState !== 'RUNNING') {
-        animFrame = requestAnimationFrame(checkInputs);
-        return;
-      }
+    let physicsInterval;
+
+    const tickPhysics = () => {
+      const state = gameStateRef.current;
+      if (state?.matchState !== 'RUNNING' || !state.players[myId]?.isAlive) return;
 
       const keys = keysRef.current;
       let dx = 0, dy = 0;
@@ -312,23 +312,26 @@ function App() {
       if (keys['ArrowLeft']) dx -= 1;
       if (keys['ArrowRight']) dx += 1;
 
-      const lastInput = lastInputRef.current;
+      // Fixed 30Hz Prediction
+      const seq = ++nextSeqRef.current;
       const now = Date.now();
+      
+      // Store and emit even if static to maintain 1-to-1 tick sync
+      pendingInputsRef.current.push({ dx, dy, seq, time: now });
+      socketRef.current.emit('input_change', { dx, dy, seq });
 
-      // Emit if keys changed, OR emit continuously every 100ms for responsiveness/safety
-      if (dx !== lastInput.dx || dy !== lastInput.dy || (now - (lastInput.time || 0) > 100)) {
-        const seq = ++nextSeqRef.current;
-        pendingInputsRef.current.push({ dx, dy, seq, time: now });
-        socketRef.current.emit('input_change', { dx, dy, seq });
-        
-        lastInputRef.current = { dx, dy, time: now };
+      if (dx !== 0 || dy !== 0) {
+        applyMovement(dx, dy, predictedPosRef.current, state.maze);
+      }
+    };
+
+    const handleDiscreteInputs = () => {
+      if (gameStateRef.current?.matchState !== 'RUNNING') {
+        animFrame = requestAnimationFrame(handleDiscreteInputs);
+        return;
       }
 
-      // Always apply prediction to current baseline if alive
-      if ((dx !== 0 || dy !== 0) && gameStateRef.current.players[myId]?.isAlive) {
-        applyMovement(dx, dy, predictedPosRef.current, gameStateRef.current.maze);
-      }
-
+      const keys = keysRef.current;
       let vx = 0, vy = 0;
       if (keys['KeyW']) vy -= 1;
       if (keys['KeyS']) vy += 1;
@@ -337,15 +340,26 @@ function App() {
 
       const shootNow = Date.now();
       if ((vx !== 0 || vy !== 0) && shootNow - lastShootTimeRef.current > 200) {
-        socketRef.current.emit('shoot', { vx, vy });
+        socketRef.current.emit('shoot', { 
+          vx, 
+          vy,
+          x: predictedPosRef.current.x,
+          y: predictedPosRef.current.y
+        });
         playSound(600, 'square', 0.05, 0.1);
         lastShootTimeRef.current = shootNow;
       }
 
-      animFrame = requestAnimationFrame(checkInputs);
+      animFrame = requestAnimationFrame(handleDiscreteInputs);
     };
-    animFrame = requestAnimationFrame(checkInputs);
-    return () => cancelAnimationFrame(animFrame);
+
+    physicsInterval = setInterval(tickPhysics, 1000 / 30);
+    animFrame = requestAnimationFrame(handleDiscreteInputs);
+
+    return () => {
+      clearInterval(physicsInterval);
+      cancelAnimationFrame(animFrame);
+    };
   }, [view]);
 
   // High-Speed Render Loop
