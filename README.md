@@ -39,7 +39,14 @@ You need [Docker](https://www.docker.com/) and [Docker Compose](https://docs.doc
    ```
    > **Note:** We use `restart: unless-stopped` for both services to ensure high availability.
 
-3. **Access the Game:**
+4. **Updating the Game:**
+   To pull the latest updates if the repository or image changes, simply pull the changes, rebuild or pull the fresh images, and restart:
+   ```bash
+   git pull origin main
+   docker-compose pull
+   docker-compose up -d --build
+   ```
+
    - **Client:** Open your browser and navigate to `http://localhost:8080`.
    - **Backend API:** The server naturally binds to `http://localhost:3001`.
 
