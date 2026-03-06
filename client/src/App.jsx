@@ -195,7 +195,7 @@ function App() {
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(200, audioCtx.currentTime);
     
-    gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.01, audioCtx.currentTime);
 
     osc.connect(filter);
     filter.connect(gain);
@@ -341,7 +341,7 @@ function App() {
                   if (d < minDist) minDist = d;
               });
 
-              const volume = Math.max(0, 0.15 * (1 - minDist / 10));
+              const volume = Math.max(0, 0.08 * (1 - minDist / 10));
               const pitch = 110 + (1 - minDist / 10) * 50;
               
               snipesHumRef.current.gain.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.1);
@@ -354,7 +354,7 @@ function App() {
           if (ambientNodesRef.current && snipes) {
               const intensity = Math.min(1, snipes.length / 30);
               const cutoff = 200 + intensity * 800;
-              const vol = 0.02 + intensity * 0.03;
+              const vol = 0.01 + intensity * 0.02;
               ambientNodesRef.current.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.5);
               ambientNodesRef.current.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.5);
           }
