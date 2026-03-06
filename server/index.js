@@ -329,7 +329,6 @@ io.on('connection', (socket) => {
         health: 100,
         lives: 3,
         isAlive: true,
-        lastProcessedSeq: -1, // Track last processed input for CSP
         color: '#' + Math.floor(Math.random() * 16777215).toString(16)
     };
 
@@ -397,9 +396,6 @@ io.on('connection', (socket) => {
         if (player && player.isAlive && gameState.matchState === 'RUNNING') {
             player.dx = data.dx || 0;
             player.dy = data.dy || 0;
-            if (data.seq !== undefined) {
-                player.lastProcessedSeq = data.seq;
-            }
         }
     });
 
@@ -414,21 +410,9 @@ io.on('connection', (socket) => {
             let speedX = (data.vx / mag) * 0.4;
             let speedY = (data.vy / mag) * 0.4;
 
-            // Use client-provided coordinates if they're within a reasonable distance (anti-cheat/safety)
-            let spawnX = player.x;
-            let spawnY = player.y;
-
-            if (data.x !== undefined && data.y !== undefined) {
-                const dist = Math.sqrt((data.x - player.x) ** 2 + (data.y - player.y) ** 2);
-                if (dist < 2.0) { // Allowed 2.0 cell discrepancy for high ping
-                    spawnX = data.x;
-                    spawnY = data.y;
-                }
-            }
-
             gameState.bullets.push({
-                x: spawnX,
-                y: spawnY,
+                x: player.x,
+                y: player.y,
                 vx: speedX,
                 vy: speedY,
                 ownerId: socket.id,
@@ -589,17 +573,13 @@ setInterval(() => {
     updatePlayers();
     checkWinConditions();
     gameState.lastUpdateTime = Date.now();
-    // Broadcast global state, but specialized per-player for sequence tracking
-    Object.keys(gameState.players).forEach(id => {
-        io.to(id).emit('stateUpdate', {
-            matchState: gameState.matchState,
-            countdown: gameState.countdown,
-            players: gameState.players,
-            snipes: gameState.snipes,
-            hives: gameState.hives,
-            bullets: gameState.bullets,
-            lastProcessedSeq: gameState.players[id].lastProcessedSeq
-        });
+    io.emit('stateUpdate', {
+        matchState: gameState.matchState,
+        countdown: gameState.countdown,
+        players: gameState.players,
+        snipes: gameState.snipes,
+        hives: gameState.hives,
+        bullets: gameState.bullets
     });
 }, 1000 / 30);
 

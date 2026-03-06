@@ -21,82 +21,6 @@ const playSound = (freq, type = 'square', duration = 0.1, vol = 0.1) => {
   osc.stop(audioCtx.currentTime + duration);
 };
 
-// --- SHARED MOVEMENT LOGIC (Sync with Server) ---
-const applyMovement = (dx, dy, pos, maze) => {
-  if (!pos || !maze) return;
-  const speed = 0.2;
-  const playerSize = 0.35;
-  const moveX = dx * speed;
-  const moveY = dy * speed;
-
-  if (moveX !== 0) {
-    const targetX = pos.x + Math.sign(moveX) * playerSize + moveX;
-    const gx = Math.floor(targetX);
-    const gy = Math.floor(pos.y);
-    if (maze[gy] && maze[gy][gx] === 0) {
-      pos.x += moveX;
-    } else if (moveX > 0) {
-      pos.x = Math.floor(pos.x) + 1 - playerSize;
-    } else if (moveX < 0) {
-      pos.x = Math.ceil(pos.x - 0.5) + playerSize;
-    }
-  }
-
-  if (moveY !== 0) {
-    const targetY = pos.y + Math.sign(moveY) * playerSize + moveY;
-    const gy = Math.floor(targetY);
-    const gx = Math.floor(pos.x);
-    if (maze[gy] && maze[gy][gx] === 0) {
-      pos.y += moveY;
-    } else if (moveY > 0) {
-      pos.y = Math.floor(pos.y) + 1 - playerSize;
-    } else if (moveY < 0) {
-      pos.y = Math.ceil(pos.y - 0.5) + playerSize;
-    }
-  }
-};
-// --- /SHARED MOVEMENT LOGIC ---
-
-// --- INTERPOLATION HELPERS ---
-const lerp = (a, b, t) => a + (b - a) * t;
-
-const getInterpolatedPosition = (id, type, renderTime, buffer) => {
-  // Find two states that bracket the renderTime
-  let stateA = null;
-  let stateB = null;
-
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    if (buffer[i].localTime <= renderTime) {
-      stateA = buffer[i];
-      if (i + 1 < buffer.length) stateB = buffer[i + 1];
-      break;
-    }
-  }
-
-  if (!stateA || !stateB) {
-    const latest = buffer[buffer.length - 1];
-    if (!latest) return null;
-    const items = type === 'player' ? latest.players : latest.snipes;
-    const item = items[id] || items.find?.(s => s.id === id);
-    return item ? { x: item.x, y: item.y } : null;
-  }
-
-  const t = (renderTime - stateA.localTime) / (stateB.localTime - stateA.localTime);
-  const itemsA = type === 'player' ? stateA.players : stateA.snipes;
-  const itemsB = type === 'player' ? stateB.players : stateB.snipes;
-
-  const itemA = type === 'player' ? itemsA[id] : itemsA.find(s => s.id === id);
-  const itemB = type === 'player' ? itemsB[id] : itemsB.find(s => s.id === id);
-
-  if (!itemA || !itemB) return itemA || itemB; // Fallback to whatever we have
-
-  return {
-    x: lerp(itemA.x, itemB.x, t),
-    y: lerp(itemA.y, itemB.y, t)
-  };
-};
-// --- /INTERPOLATION HELPERS ---
-
 function App() {
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
@@ -105,11 +29,6 @@ function App() {
   const [myId, setMyId] = useState(null);
   const keysRef = useRef({});
   const lastInputRef = useRef({ dx: 0, dy: 0 });
-  const pendingInputsRef = useRef([]);
-  const stateBufferRef = useRef([]); // History for interpolation
-  const INTERPOLATION_DELAY = 100; // ms
-  const nextSeqRef = useRef(0);
-  const predictedPosRef = useRef({ x: 0, y: 0 });
   const lastShootTimeRef = useRef(0);
   const flashTimeRef = useRef(0);
   const [name, setName] = useState('');
@@ -141,11 +60,6 @@ function App() {
       if (data.gameMode) setGameMode(data.gameMode);
       if (data.matchState) setMatchState(data.matchState);
       if (data.maxPlayers) setMaxPlayers(data.maxPlayers);
-
-      // Initialize local prediction
-      if (data.players && data.players[data.id]) {
-        predictedPosRef.current = { x: data.players[data.id].x, y: data.players[data.id].y };
-      }
     });
 
     socket.on('server_full', () => {
@@ -174,34 +88,6 @@ function App() {
           ...state
         };
         gameStateRef.current = nextState;
-
-        // Add to interpolation buffer with local timestamp
-        stateBufferRef.current.push({
-          ...state,
-          localTime: Date.now()
-        });
-        // Keep buffer small (last 500ms should be plenty)
-        const nowMs = Date.now();
-        stateBufferRef.current = stateBufferRef.current.filter(s => nowMs - s.localTime < 1000);
-
-        // --- CSP RECONCILIATION ---
-        if (state.players && state.players[myId] && state.lastProcessedSeq !== undefined) {
-          const serverPlayer = state.players[myId];
-          
-          // 1. Reset baseline to absolute server truth
-          predictedPosRef.current = { x: serverPlayer.x, y: serverPlayer.y };
-
-          // 2. Filter out acknowledged inputs
-          pendingInputsRef.current = pendingInputsRef.current.filter(
-            input => input.seq > state.lastProcessedSeq
-          );
-
-          // 3. Re-apply all unacknowledged inputs to the server baseline
-          pendingInputsRef.current.forEach(input => {
-            applyMovement(input.dx, input.dy, predictedPosRef.current, nextState.maze);
-          });
-        }
-        // --- /CSP RECONCILIATION ---
 
         // Throttle React UI updates to ~5Hz so the HUD updates without lagging the canvas loop
         const now = Date.now();
@@ -299,11 +185,11 @@ function App() {
     if (!socketRef.current || view !== 'game') return;
 
     let animFrame;
-    let physicsInterval;
-
-    const tickPhysics = () => {
-      const state = gameStateRef.current;
-      if (state?.matchState !== 'RUNNING' || !state.players[myId]?.isAlive) return;
+    const checkInputs = () => {
+      if (gameStateRef.current?.matchState !== 'RUNNING') {
+        animFrame = requestAnimationFrame(checkInputs);
+        return;
+      }
 
       const keys = keysRef.current;
       let dx = 0, dy = 0;
@@ -312,26 +198,15 @@ function App() {
       if (keys['ArrowLeft']) dx -= 1;
       if (keys['ArrowRight']) dx += 1;
 
-      // Fixed 30Hz Prediction
-      const seq = ++nextSeqRef.current;
+      const lastInput = lastInputRef.current;
       const now = Date.now();
-      
-      // Store and emit even if static to maintain 1-to-1 tick sync
-      pendingInputsRef.current.push({ dx, dy, seq, time: now });
-      socketRef.current.emit('input_change', { dx, dy, seq });
 
-      if (dx !== 0 || dy !== 0) {
-        applyMovement(dx, dy, predictedPosRef.current, state.maze);
-      }
-    };
-
-    const handleDiscreteInputs = () => {
-      if (gameStateRef.current?.matchState !== 'RUNNING') {
-        animFrame = requestAnimationFrame(handleDiscreteInputs);
-        return;
+      // Emit if keys changed, OR emit continuously every 200ms to guarantee server has proper held inputs (fixes post-death unresponsiveness)
+      if (dx !== lastInput.dx || dy !== lastInput.dy || (now - (lastInput.time || 0) > 200)) {
+        socketRef.current.emit('input_change', { dx, dy });
+        lastInputRef.current = { dx, dy, time: now };
       }
 
-      const keys = keysRef.current;
       let vx = 0, vy = 0;
       if (keys['KeyW']) vy -= 1;
       if (keys['KeyS']) vy += 1;
@@ -340,26 +215,15 @@ function App() {
 
       const shootNow = Date.now();
       if ((vx !== 0 || vy !== 0) && shootNow - lastShootTimeRef.current > 200) {
-        socketRef.current.emit('shoot', { 
-          vx, 
-          vy,
-          x: predictedPosRef.current.x,
-          y: predictedPosRef.current.y
-        });
+        socketRef.current.emit('shoot', { vx, vy });
         playSound(600, 'square', 0.05, 0.1);
         lastShootTimeRef.current = shootNow;
       }
 
-      animFrame = requestAnimationFrame(handleDiscreteInputs);
+      animFrame = requestAnimationFrame(checkInputs);
     };
-
-    physicsInterval = setInterval(tickPhysics, 1000 / 30);
-    animFrame = requestAnimationFrame(handleDiscreteInputs);
-
-    return () => {
-      clearInterval(physicsInterval);
-      cancelAnimationFrame(animFrame);
-    };
+    animFrame = requestAnimationFrame(checkInputs);
+    return () => cancelAnimationFrame(animFrame);
   }, [view]);
 
   // High-Speed Render Loop
@@ -375,9 +239,6 @@ function App() {
       const ctx = canvasRef.current.getContext('2d');
       const { players, snipes, matchState, countdown, maze, hives, bullets } = currentState;
       if (!maze || !players || !hives) return;
-
-      const renderTime = Date.now() - INTERPOLATION_DELAY;
-      const buffer = stateBufferRef.current;
 
       // Set canvas dimensions
       const MAZE_WIDTH = maze[0].length;
@@ -451,11 +312,10 @@ function App() {
         // Draw Snipes
         if (snipes) {
           snipes.forEach(s => {
-            const pos = getInterpolatedPosition(s.id, 'snipe', renderTime, buffer) || { x: s.x, y: s.y };
             if (s.type === 'fast') ctx.fillStyle = '#0ff'; // Cyan
             else if (s.type === 'shooter') ctx.fillStyle = '#f00'; // Red
             else ctx.fillStyle = '#f0f'; // Pink
-            ctx.fillText('∩', pos.x * CELL_SIZE, pos.y * CELL_SIZE);
+            ctx.fillText('∩', s.x * CELL_SIZE, s.y * CELL_SIZE);
           });
         }
 
@@ -468,32 +328,20 @@ function App() {
 
       // Draw Players
       Object.values(players).forEach(p => {
-        const isLocal = p.id === myId;
-        let renderX, renderY;
-
-        if (isLocal) {
-          renderX = predictedPosRef.current.x;
-          renderY = predictedPosRef.current.y;
-        } else {
-          const interp = getInterpolatedPosition(p.id, 'player', renderTime, buffer);
-          renderX = interp ? interp.x : p.x;
-          renderY = interp ? interp.y : p.y;
-        }
-
-        ctx.fillStyle = isLocal ? '#0f0' : p.color;
-        ctx.fillText('☻', renderX * CELL_SIZE, renderY * CELL_SIZE);
+        ctx.fillStyle = p.id === myId ? '#0f0' : p.color;
+        ctx.fillText('☻', p.x * CELL_SIZE, p.y * CELL_SIZE);
         ctx.font = '8px monospace';
-        ctx.fillText(p.name, renderX * CELL_SIZE, renderY * CELL_SIZE - CELL_SIZE * 0.75);
+        ctx.fillText(p.name, p.x * CELL_SIZE, p.y * CELL_SIZE - CELL_SIZE * 0.75);
         ctx.font = '10px monospace';
         if (p.health > 0) {
           ctx.fillStyle = '#0f0';
-          ctx.fillText(`♥ ${p.health} | x${p.lives}`, renderX * CELL_SIZE, renderY * CELL_SIZE + 20);
+          ctx.fillText(`♥ ${p.health} | x${p.lives}`, p.x * CELL_SIZE, p.y * CELL_SIZE + 20);
         } else if (p.lives <= 0) {
           ctx.fillStyle = '#f00';
-          ctx.fillText('ELIMINATED', renderX * CELL_SIZE, renderY * CELL_SIZE);
+          ctx.fillText('ELIMINATED', p.x * CELL_SIZE, p.y * CELL_SIZE);
         } else {
           ctx.fillStyle = '#f00';
-          ctx.fillText('DEAD', renderX * CELL_SIZE, renderY * CELL_SIZE);
+          ctx.fillText('DEAD', p.x * CELL_SIZE, p.y * CELL_SIZE);
         }
         ctx.font = FONT;
       });
